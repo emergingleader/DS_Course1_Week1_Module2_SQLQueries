@@ -36,10 +36,9 @@ df_hungry = pd.read_sql(
 df_hungry_ages = pd.read_sql(
     "SELECT name, age, hungry FROM dogs WHERE hungry = 1 AND age BETWEEN 2 AND 7 ORDER BY name ASC", conn2)
 
-df_4_oldest = pd.read_sql("""
-SELECT name, age, breed FROM (
-    SELECT name, age, breed FROM dogs ORDER BY age DESC LIMIT 4
-) ORDER BY breed ASC""", conn2)
+# Step 8: 4 oldest dogs by age DESC only (no secondary sort)
+df_4_oldest = pd.read_sql(
+    "SELECT name, age, breed FROM dogs ORDER BY age DESC LIMIT 4", conn2)
 
 # ── Part 4: Aggregation ───────────────────────────────────────────────────
 
