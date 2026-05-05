@@ -2,61 +2,114 @@ import sqlite3
 import pandas as pd
 import os
 
-# ── Locate .db files relative to this file's directory ───────────────────
+# ── Locate data.sqlite relative to this file ─────────────────────────────
 _dir = os.path.dirname(os.path.abspath(__file__))
+conn = sqlite3.connect(os.path.join(_dir, 'data.sqlite'))
 
-conn1 = sqlite3.connect(os.path.join(_dir, 'planets.db'))
-conn2 = sqlite3.connect(os.path.join(_dir, 'dogs.db'))
-conn3 = sqlite3.connect(os.path.join(_dir, 'babe_ruth.db'))
+# ── Part 1: Join and Filter ───────────────────────────────────────────────
 
-# ── Part 1: Basic Filtering ───────────────────────────────────────────────
+df_boston = pd.read_sql("""
+SELECT e.firstName, e.lastName, e.jobTitle
+FROM employees e
+JOIN offices o ON e.officeCode = o.officeCode
+WHERE o.city = 'Boston'
+""", conn)
 
-df_no_moons = pd.read_sql(
-    "SELECT * FROM planets WHERE num_of_moons = 0", conn1)
+df_zero_emp = pd.read_sql("""
+SELECT o.*
+FROM offices o
+LEFT JOIN employees e ON o.officeCode = e.officeCode
+WHERE e.employeeNumber IS NULL
+""", conn)
 
-df_name_seven = pd.read_sql(
-    "SELECT name, mass FROM planets WHERE LENGTH(name) = 7", conn1)
+# ── Part 2: Type of Join ──────────────────────────────────────────────────
 
-# ── Part 2: Advanced Filtering ───────────────────────────────────────────
+df_employee = pd.read_sql("""
+SELECT e.firstName, e.lastName, o.city, o.state
+FROM employees e
+LEFT JOIN offices o ON e.officeCode = o.officeCode
+ORDER BY e.firstName, e.lastName
+""", conn)
 
-df_mass = pd.read_sql(
-    "SELECT name, mass FROM planets WHERE mass <= 1.00", conn1)
+df_contacts = pd.read_sql("""
+SELECT c.contactFirstName, c.contactLastName, c.phone, c.salesRepEmployeeNumber
+FROM customers c
+LEFT JOIN orders o ON c.customerNumber = o.customerNumber
+WHERE o.orderNumber IS NULL
+ORDER BY c.contactLastName
+""", conn)
 
-df_mass_moon = pd.read_sql(
-    "SELECT * FROM planets WHERE num_of_moons >= 1 AND mass < 1.00", conn1)
+# ── Part 3: Built-in Function ─────────────────────────────────────────────
 
-df_blue = pd.read_sql(
-    "SELECT name, color FROM planets WHERE color LIKE '%blue%'", conn1)
+df_payment = pd.read_sql("""
+SELECT c.contactFirstName, c.contactLastName, p.amount, p.paymentDate
+FROM customers c
+JOIN payments p ON c.customerNumber = p.customerNumber
+ORDER BY CAST(p.amount AS REAL) DESC
+""", conn)
 
-# ── Part 3: Ordering and Limiting ────────────────────────────────────────
+# ── Part 4: Joining and Grouping ──────────────────────────────────────────
 
-df_hungry = pd.read_sql(
-    "SELECT name, age, breed FROM dogs WHERE hungry = 1 ORDER BY age ASC", conn2)
+df_credit = pd.read_sql("""
+SELECT e.employeeNumber, e.firstName, e.lastName,
+       COUNT(c.customerNumber) AS num_customers
+FROM employees e
+JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+GROUP BY e.employeeNumber
+HAVING AVG(CAST(c.creditLimit AS REAL)) > 90000
+ORDER BY num_customers DESC
+""", conn)
 
-df_hungry_ages = pd.read_sql(
-    "SELECT name, age, hungry FROM dogs WHERE hungry = 1 AND age BETWEEN 2 AND 7 ORDER BY name ASC", conn2)
+df_product_sold = pd.read_sql("""
+SELECT p.productName,
+       COUNT(DISTINCT od.orderNumber) AS numorders,
+       SUM(od.quantityOrdered) AS totalunits
+FROM products p
+JOIN orderdetails od ON p.productCode = od.productCode
+GROUP BY p.productCode
+ORDER BY totalunits DESC
+""", conn)
 
-# Step 8: 4 oldest dogs by age DESC only (no secondary sort)
-df_4_oldest = pd.read_sql(
-    "SELECT name, age, breed FROM dogs ORDER BY age DESC LIMIT 4", conn2)
+# ── Part 5: Multiple Joins ────────────────────────────────────────────────
 
-# ── Part 4: Aggregation ───────────────────────────────────────────────────
+df_total_customers = pd.read_sql("""
+SELECT p.productName, p.productCode,
+       COUNT(DISTINCT o.customerNumber) AS numpurchasers
+FROM products p
+JOIN orderdetails od ON p.productCode = od.productCode
+JOIN orders o ON od.orderNumber = o.orderNumber
+GROUP BY p.productCode
+ORDER BY numpurchasers DESC
+""", conn)
 
-df_ruth_years = pd.read_sql(
-    "SELECT COUNT(year) AS total_years FROM babe_ruth_stats", conn3)
+df_customers = pd.read_sql("""
+SELECT o.officeCode, o.city, COUNT(c.customerNumber) AS n_customers
+FROM offices o
+JOIN employees e ON o.officeCode = e.officeCode
+JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+GROUP BY o.officeCode
+""", conn)
 
-df_hr_total = pd.read_sql(
-    "SELECT SUM(HR) AS total_hr FROM babe_ruth_stats", conn3)
+# ── Part 6: Subquery ──────────────────────────────────────────────────────
 
-# ── Part 5: Grouping and Aggregation ─────────────────────────────────────
+df_under_20 = pd.read_sql("""
+SELECT DISTINCT e.employeeNumber, e.firstName, e.lastName,
+                o.city, o.officeCode
+FROM employees e
+JOIN offices o ON e.officeCode = o.officeCode
+JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+JOIN orders ord ON c.customerNumber = ord.customerNumber
+JOIN orderdetails od ON ord.orderNumber = od.orderNumber
+WHERE od.productCode IN (
+    SELECT p.productCode
+    FROM products p
+    JOIN orderdetails od2 ON p.productCode = od2.productCode
+    JOIN orders o2 ON od2.orderNumber = o2.orderNumber
+    GROUP BY p.productCode
+    HAVING COUNT(DISTINCT o2.customerNumber) < 20
+)
+ORDER BY e.lastName
+""", conn)
 
-df_teams_years = pd.read_sql(
-    "SELECT team, COUNT(year) AS number_years FROM babe_ruth_stats GROUP BY team", conn3)
-
-df_at_bats = pd.read_sql(
-    "SELECT team, AVG(at_bats) AS average_at_bats FROM babe_ruth_stats GROUP BY team HAVING AVG(at_bats) > 200", conn3)
-
-# ── Close connections ─────────────────────────────────────────────────────
-conn1.close()
-conn2.close()
-conn3.close()
+# ── Close connection ──────────────────────────────────────────────────────
+conn.close()
